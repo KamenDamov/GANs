@@ -91,6 +91,7 @@ class AdversarialNetwork(torch.nn.Module):
         )
         return model
 
+
     def train_gan(self, generator, discriminator, dataloader, num_epochs, latent_dim, learning_rate=0.0002):
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -98,13 +99,14 @@ class AdversarialNetwork(torch.nn.Module):
         discriminator = discriminator.to(device)
 
         criterion = self.produce_loss_function('bce')
-        optimizer_g = self.produce_optimizer('adam', generator, learning_rate)
-        optimizer_d = self.produce_optimizer('adam', discriminator, learning_rate)
+        optimizer_g = self.produce_optimizer('adam', generator, 0.0002)
+        optimizer_d = self.produce_optimizer('adam', discriminator, 0.0001)
 
         for epoch in range(num_epochs):
             for real_images, _ in dataloader:
                 batch_size = real_images.size(0)
                 real_images = real_images.to(device)
+                real_images += 0.05 * torch.randn_like(real_images)
 
                 # Generate fake images
                 noise = torch.randn(batch_size, latent_dim, 1, 1, device=device)
@@ -116,8 +118,8 @@ class AdversarialNetwork(torch.nn.Module):
 
                 # Train Discriminator
                 optimizer_d.zero_grad()
-                real_labels = torch.ones(batch_size, 1, device=device)
-                fake_labels = torch.zeros(batch_size, 1, device=device)
+                real_labels = torch.full((batch_size, 1), 0.9, device=device)
+                fake_labels = torch.full((batch_size, 1), 0.1, device=device)
 
                 real_loss = criterion(discriminator(real_images), real_labels)
                 fake_loss = criterion(discriminator(fake_images.detach()), fake_labels)
@@ -136,12 +138,12 @@ class AdversarialNetwork(torch.nn.Module):
                 with torch.no_grad():
                     noise = torch.randn(16, latent_dim, 4, 4, device=device)
                     fake_images = generator(noise).cpu()
-                    fake_images = fake_images.view(-1, 1, 28, 28)
                     
                     # Plot generated images
                     fig, axes = plt.subplots(1, 8, figsize=(12, 2))
                     for i, ax in enumerate(axes):
                         ax.imshow(fake_images[i][0], cmap='gray')
+                        fig.savefig(f'gan_images/{epoch+1}.svg')
                         ax.axis('off')
                     plt.show()
 
