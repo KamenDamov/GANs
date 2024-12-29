@@ -131,10 +131,7 @@ class AdversarialNetwork(torch.nn.Module):
                 g_loss.backward()
                 optimizer_g.step()
 
-            print(f"Epoch [{epoch+1}/{num_epochs}], D Loss: {d_loss.item():.4f}, G Loss: {g_loss.item():.4f}")
-
-
-            print(f"Epoch [{epoch+1}/{num_epochs}], D Loss: {d_loss.item():.4f}, G Loss: {g_loss.item():.4f}")    
+            print(f"Epoch [{epoch+1}/{num_epochs}], D Loss: {d_loss.item():.4f}, G Loss: {g_loss.item():.4f}")   
             if (epoch + 1) % 10 == 0:
                 with torch.no_grad():
                     noise = torch.randn(16, latent_dim, 4, 4, device=device)
