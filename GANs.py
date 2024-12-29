@@ -43,11 +43,11 @@ class AdversarialNetwork(torch.nn.Module):
         else:    
             raise ValueError('Invalid loss function')
         
-    def produce_optimizer(self, optimizer, learning_rate):
+    def produce_optimizer(self, optimizer, model, learning_rate):
         if optimizer == 'sgd':
-            return torch.optim.SGD(self.parameters(), lr=learning_rate)
+            return torch.optim.SGD(model.parameters(), lr=learning_rate)
         elif optimizer == 'adam':
-            return torch.optim.Adam(self.parameters(), lr=learning_rate)
+            return torch.optim.Adam(model.parameters(), lr=learning_rate)
         else:   
             raise ValueError('Invalid optimizer')
 
@@ -121,7 +121,7 @@ class AdversarialNetwork(torch.nn.Module):
                 fake_labels = torch.zeros(batch_size, 1, device=device)
 
                 # Train Discriminator
-                noise = torch.randn(batch_size, latent_dim, 1, 1, device=device)
+                noise = torch.randn(batch_size, latent_dim, 4, 4, device=device)
                 fake_images = generator(noise)
                 optimizer_d.zero_grad()
 
@@ -141,7 +141,7 @@ class AdversarialNetwork(torch.nn.Module):
             print(f"Epoch [{epoch+1}/{num_epochs}], D Loss: {d_loss.item():.4f}, G Loss: {g_loss.item():.4f}")    
             if (epoch + 1) % 10 == 0:
                 with torch.no_grad():
-                    noise = torch.randn(16, latent_dim, 1, 1, device=device)
+                    noise = torch.randn(16, latent_dim, 4, 4, device=device)
                     fake_images = generator(noise).cpu()
                     fake_images = fake_images.view(-1, 1, 28, 28)
                     
