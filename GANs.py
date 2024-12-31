@@ -57,7 +57,6 @@ class AdversarialNetwork(torch.nn.Module):
     def create_discriminator(self, activation='leaky_relu'):
         activation_function = self.get_activation_function(activation)
 
-        # Build discriminator model
         model = torch.nn.Sequential(
             torch.nn.Conv2d(self.input_channels, 32, kernel_size=4, stride=2, padding=1),  # Output: 14x14
             activation_function,
@@ -67,30 +66,29 @@ class AdversarialNetwork(torch.nn.Module):
             torch.nn.Conv2d(64, 128, kernel_size=4, stride=2, padding=1),  # Output: 4x4
             torch.nn.BatchNorm2d(128),
             activation_function,
-            torch.nn.Flatten(),  # Flatten for linear layer
-            torch.nn.LazyLinear(1),  # Automatically infer the input size
-            self.get_activation_function('sigmoid'),  # Real/fake probability
+            torch.nn.Flatten(),
+            torch.nn.Linear(4 * 4 * 128, 1),  # Ensure this matches the output
+            self.get_activation_function('sigmoid'),
         )
         return model
-
-    def create_generator(self, latent_dim, activation='relu'):
+    
+    def create_generator(self, latent_dim, activation='leaky_relu'):
         activation_function = self.get_activation_function(activation)
 
         model = torch.nn.Sequential(
-            torch.nn.ConvTranspose2d(latent_dim, 128, kernel_size=4, stride=1, padding=0),  # Output: 4x4
+            torch.nn.ConvTranspose2d(latent_dim, 256, kernel_size=4, stride=1, padding=0),  # Output: 4x4
+            torch.nn.BatchNorm2d(256),
+            activation_function,
+            torch.nn.ConvTranspose2d(256, 128, kernel_size=4, stride=2, padding=1),  # Output: 8x8
             torch.nn.BatchNorm2d(128),
             activation_function,
-            torch.nn.ConvTranspose2d(128, 64, kernel_size=4, stride=2, padding=1),  # Output: 8x8
+            torch.nn.ConvTranspose2d(128, 64, kernel_size=4, stride=2, padding=1),  # Output: 16x16
             torch.nn.BatchNorm2d(64),
             activation_function,
-            torch.nn.ConvTranspose2d(64, 32, kernel_size=4, stride=2, padding=1),  # Output: 16x16
-            torch.nn.BatchNorm2d(32),
-            activation_function,
-            torch.nn.ConvTranspose2d(32, self.input_channels, kernel_size=3, stride=2, padding=1, output_padding=0),  # Output: 28x28
-            self.get_activation_function('tanh'),  # Normalize output to [-1, 1]
+            torch.nn.ConvTranspose2d(64, self.input_channels, kernel_size=4, stride=2, padding=1, output_padding=0),  # Output: 28x28
+            self.get_activation_function('tanh'),
         )
         return model
-
 
     def train_gan(self, generator, discriminator, dataloader, num_epochs, latent_dim, learning_rate=0.0002):
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -99,14 +97,14 @@ class AdversarialNetwork(torch.nn.Module):
         discriminator = discriminator.to(device)
 
         criterion = self.produce_loss_function('bce')
-        optimizer_g = self.produce_optimizer('adam', generator, 0.0002)
+        optimizer_g = self.produce_optimizer('adam', generator, 0.0005)
         optimizer_d = self.produce_optimizer('adam', discriminator, 0.0001)
 
         for epoch in range(num_epochs):
             for real_images, _ in dataloader:
                 batch_size = real_images.size(0)
                 real_images = real_images.to(device)
-                real_images += 0.05 * torch.randn_like(real_images)
+                #real_images += 0.05 * torch.randn_like(real_images)
 
                 # Generate fake images
                 noise = torch.randn(batch_size, latent_dim, 1, 1, device=device)
@@ -118,8 +116,8 @@ class AdversarialNetwork(torch.nn.Module):
 
                 # Train Discriminator
                 optimizer_d.zero_grad()
-                real_labels = torch.full((batch_size, 1), 0.9, device=device)
-                fake_labels = torch.full((batch_size, 1), 0.1, device=device)
+                real_labels = torch.full((batch_size, 1), 0.95, device=device)
+                fake_labels = torch.full((batch_size, 1), 0.05, device=device)
 
                 real_loss = criterion(discriminator(real_images), real_labels)
                 fake_loss = criterion(discriminator(fake_images.detach()), fake_labels)
@@ -136,11 +134,11 @@ class AdversarialNetwork(torch.nn.Module):
             print(f"Epoch [{epoch+1}/{num_epochs}], D Loss: {d_loss.item():.4f}, G Loss: {g_loss.item():.4f}")   
             if (epoch + 1) % 10 == 0:
                 with torch.no_grad():
-                    noise = torch.randn(16, latent_dim, 4, 4, device=device)
+                    noise = torch.randn(batch_size, latent_dim, 1, 1, device=device)
                     fake_images = generator(noise).cpu()
                     
                     # Plot generated images
-                    fig, axes = plt.subplots(1, 8, figsize=(12, 2))
+                    fig, axes = plt.subplots(1, 8, figsize=(24, 4))
                     for i, ax in enumerate(axes):
                         ax.imshow(fake_images[i][0], cmap='gray')
                         fig.savefig(f'gan_images/{epoch+1}.svg')
