@@ -45,50 +45,75 @@ class AdversarialNetwork(torch.nn.Module):
         
     def produce_optimizer(self, optimizer, model, learning_rate):
         if optimizer == 'sgd':
-            return torch.optim.SGD(model.parameters(), lr=learning_rate)
+            return torch.optim.SGD(model.parameters(), lr=learning_rate, betas=(0.5, 0.999))
         elif optimizer == 'adam':
-            return torch.optim.Adam(model.parameters(), lr=learning_rate)
+            return torch.optim.Adam(model.parameters(), lr=learning_rate, betas=(0.5, 0.999))
         else:   
             raise ValueError('Invalid optimizer')
 
     def compute_flatten_size(self, conv_output_height, conv_output_width, num_channels):
         return conv_output_height * conv_output_width * num_channels
     
-    def create_discriminator(self, activation='leaky_relu'):
-        activation_function = self.get_activation_function(activation)
 
+    def create_discriminator(self, hidden, activation='leaky_relu'):
+        activation_function = self.get_activation_function(activation)
+        
+        # Typical DCGAN pattern for MNIST (28x28 -> 1x1).
         model = torch.nn.Sequential(
-            torch.nn.Conv2d(self.input_channels, 32, kernel_size=4, stride=2, padding=1),  # Output: 14x14
+            # 1) 28 -> 14
+            torch.nn.Conv2d(self.input_channels, hidden, kernel_size=4, stride=2, padding=1),
             activation_function,
-            torch.nn.Conv2d(32, 64, kernel_size=4, stride=2, padding=1),  # Output: 7x7
-            torch.nn.BatchNorm2d(64),
+            
+            # 2) 14 -> 7
+            torch.nn.Conv2d(hidden, hidden * 2, kernel_size=4, stride=2, padding=1),
+            torch.nn.BatchNorm2d(hidden * 2),
             activation_function,
-            torch.nn.Conv2d(64, 128, kernel_size=4, stride=2, padding=1),  # Output: 4x4
-            torch.nn.BatchNorm2d(128),
+            
+            # 3) 7 -> 4  (use kernel_size=3 here)
+            torch.nn.Conv2d(hidden * 2, hidden * 4, kernel_size=3, stride=2, padding=1),
+            torch.nn.BatchNorm2d(hidden * 4),
             activation_function,
-            torch.nn.Flatten(),
-            torch.nn.Linear(4 * 4 * 128, 1),  # Ensure this matches the output
-            self.get_activation_function('sigmoid'),
+            
+            # 4) 4 -> 1  (kernel_size=4, stride=1, padding=0)
+            torch.nn.Conv2d(hidden * 4, 1, kernel_size=4, stride=1, padding=0),
+            torch.nn.Flatten(), 
+            torch.nn.Sigmoid()
         )
         return model
     
-    def create_generator(self, latent_dim, activation='leaky_relu'):
+    def create_generator(self, latent_dim, hidden, activation='leaky_relu'):
         activation_function = self.get_activation_function(activation)
 
         model = torch.nn.Sequential(
-            torch.nn.ConvTranspose2d(latent_dim, 256, kernel_size=4, stride=1, padding=0),  # Output: 4x4
-            torch.nn.BatchNorm2d(256),
-            activation_function,
-            torch.nn.ConvTranspose2d(256, 128, kernel_size=4, stride=2, padding=1),  # Output: 8x8
-            torch.nn.BatchNorm2d(128),
-            activation_function,
-            torch.nn.ConvTranspose2d(128, 64, kernel_size=4, stride=2, padding=1),  # Output: 16x16
-            torch.nn.BatchNorm2d(64),
-            activation_function,
-            torch.nn.ConvTranspose2d(64, self.input_channels, kernel_size=4, stride=2, padding=1, output_padding=0),  # Output: 28x28
-            self.get_activation_function('tanh'),
+            # 1) 1×1 -> 4×4
+            torch.nn.ConvTranspose2d(latent_dim, hidden*4, kernel_size=4, stride=1, padding=0),
+            torch.nn.BatchNorm2d(hidden*4),
+            torch.nn.LeakyReLU(0.2, inplace=True),
+
+            # 2) 4×4 -> 7×7  (kernel=4, stride=2, pad=1 typically yields 8×8, 
+            # so you might use stride=2, pad=1 + output_padding=1 to get exactly 7)
+            # or accept 8×8 for a moment; see the note below
+            torch.nn.ConvTranspose2d(hidden*4, hidden*2, kernel_size=4, stride=2, padding=1),
+            torch.nn.BatchNorm2d(hidden*2),
+            torch.nn.LeakyReLU(0.2, inplace=True),
+
+            # 3) 7×7 -> 14×14
+            torch.nn.ConvTranspose2d(hidden*2, hidden, kernel_size=4, stride=2, padding=1),
+            torch.nn.BatchNorm2d(hidden),
+            torch.nn.LeakyReLU(0.2, inplace=True),
+
+            # 4) 14×14 -> 28×28
+            torch.nn.ConvTranspose2d(hidden, 1, kernel_size=4, stride=2, padding=1),
+            torch.nn.Tanh()
         )
         return model
+    
+    def debug_discriminator_output(self, discriminator, images):
+        x = images
+        with torch.no_grad():
+            for i, layer in enumerate(discriminator):
+                x = layer(x)
+                print(f"After layer {i} ({layer}): {x.shape}")
 
     def train_gan(self, generator, discriminator, dataloader, num_epochs, latent_dim, learning_rate=0.0002):
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -104,23 +129,25 @@ class AdversarialNetwork(torch.nn.Module):
             for real_images, _ in dataloader:
                 batch_size = real_images.size(0)
                 real_images = real_images.to(device)
-                #real_images += 0.05 * torch.randn_like(real_images)
 
-                # Generate fake images
                 noise = torch.randn(batch_size, latent_dim, 1, 1, device=device)
                 fake_images = generator(noise)
 
-                # Debug shapes
-                #print(f"Real images shape: {real_images.shape}")  # Expected: [batch_size, 1, 28, 28]
-                #print(f"Fake images shape: {fake_images.shape}")  # Expected: [batch_size, 1, 28, 28]
+                #print("\n[DEBUG] real_images:", real_images.shape)       # Expect [64, 1, 28, 28]
+                #print("[DEBUG] fake_images:", fake_images.shape)         # Expect [64, 1, 28, 28]
 
-                # Train Discriminator
-                optimizer_d.zero_grad()
+                real_output = discriminator(real_images)
+                #print("[DEBUG] D(real_images):", real_output.shape)      # Expect [64, 1]
+                fake_output = discriminator(fake_images.detach())
+                #print("[DEBUG] D(fake_images):", fake_output.shape)      # Expect [64, 1]
+
                 real_labels = torch.full((batch_size, 1), 0.95, device=device)
                 fake_labels = torch.full((batch_size, 1), 0.05, device=device)
+                #print("[DEBUG] real_labels:", real_labels.shape)         # [64, 1]
+                #print("[DEBUG] fake_labels:", fake_labels.shape)         # [64, 1]
 
-                real_loss = criterion(discriminator(real_images), real_labels)
-                fake_loss = criterion(discriminator(fake_images.detach()), fake_labels)
+                real_loss = criterion(real_output, real_labels)
+                fake_loss = criterion(fake_output, fake_labels)
                 d_loss = real_loss + fake_loss
                 d_loss.backward()
                 optimizer_d.step()
