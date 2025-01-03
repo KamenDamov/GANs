@@ -55,56 +55,61 @@ class AdversarialNetwork(torch.nn.Module):
         return conv_output_height * conv_output_width * num_channels
     
 
-    def create_discriminator(self, hidden, activation='leaky_relu'):
+    def create_discriminator(self, d, activation='leaky_relu'):
+        """
+        Discriminator for MNIST-sized (28×28) grayscale images.
+        Downsamples 28×28 -> 1×1 in four steps, output shape [N,1].
+        """
         activation_function = self.get_activation_function(activation)
-        
-        # Typical DCGAN pattern for MNIST (28x28 -> 1x1).
+
         model = torch.nn.Sequential(
             # 1) 28 -> 14
-            torch.nn.Conv2d(self.input_channels, hidden, kernel_size=4, stride=2, padding=1),
-            activation_function,
-            
+            torch.nn.Conv2d(self.input_channels, d, kernel_size=4, stride=2, padding=1),
+            torch.nn.LeakyReLU(0.2, inplace=True),
+
             # 2) 14 -> 7
-            torch.nn.Conv2d(hidden, hidden * 2, kernel_size=4, stride=2, padding=1),
-            torch.nn.BatchNorm2d(hidden * 2),
-            activation_function,
-            
-            # 3) 7 -> 4  (use kernel_size=3 here)
-            torch.nn.Conv2d(hidden * 2, hidden * 4, kernel_size=3, stride=2, padding=1),
-            torch.nn.BatchNorm2d(hidden * 4),
-            activation_function,
-            
-            # 4) 4 -> 1  (kernel_size=4, stride=1, padding=0)
-            torch.nn.Conv2d(hidden * 4, 1, kernel_size=4, stride=1, padding=0),
-            torch.nn.Flatten(), 
+            torch.nn.Conv2d(d, d * 2, kernel_size=4, stride=2, padding=1),
+            torch.nn.BatchNorm2d(d * 2),
+            torch.nn.LeakyReLU(0.2, inplace=True),
+
+            # 3) 7 -> 4 (note kernel=3, stride=2, pad=1)
+            torch.nn.Conv2d(d * 2, d * 4, kernel_size=3, stride=2, padding=1),
+            torch.nn.BatchNorm2d(d * 4),
+            torch.nn.LeakyReLU(0.2, inplace=True),
+
+            # 4) 4 -> 1
+            torch.nn.Conv2d(d * 4, 1, kernel_size=4, stride=1, padding=0),
+            torch.nn.Flatten(),  # -> [N, 1]
             torch.nn.Sigmoid()
         )
         return model
     
-    def create_generator(self, latent_dim, hidden, activation='leaky_relu'):
+    def create_generator(self, latent_dim=100, hidden=64, activation='leaky_relu'):
+        """
+        Generator that outputs 28×28 grayscale images.
+        Starts from a latent noise [N, latent_dim, 1, 1].
+        """
         activation_function = self.get_activation_function(activation)
 
         model = torch.nn.Sequential(
             # 1) 1×1 -> 4×4
-            torch.nn.ConvTranspose2d(latent_dim, hidden*4, kernel_size=4, stride=1, padding=0),
-            torch.nn.BatchNorm2d(hidden*4),
+            torch.nn.ConvTranspose2d(latent_dim, hidden * 4, kernel_size=4, stride=1, padding=0),
+            torch.nn.BatchNorm2d(hidden * 4),
             torch.nn.LeakyReLU(0.2, inplace=True),
 
-            # 2) 4×4 -> 7×7  (kernel=4, stride=2, pad=1 typically yields 8×8, 
-            # so you might use stride=2, pad=1 + output_padding=1 to get exactly 7)
-            # or accept 8×8 for a moment; see the note below
-            torch.nn.ConvTranspose2d(hidden*4, hidden*2, kernel_size=4, stride=2, padding=1),
-            torch.nn.BatchNorm2d(hidden*2),
+            # 2) 4×4 -> 7×7 (use kernel=3, stride=2, pad=1)
+            torch.nn.ConvTranspose2d(hidden * 4, hidden * 2, kernel_size=3, stride=2, padding=1),
+            torch.nn.BatchNorm2d(hidden * 2),
             torch.nn.LeakyReLU(0.2, inplace=True),
 
             # 3) 7×7 -> 14×14
-            torch.nn.ConvTranspose2d(hidden*2, hidden, kernel_size=4, stride=2, padding=1),
+            torch.nn.ConvTranspose2d(hidden * 2, hidden, kernel_size=4, stride=2, padding=1),
             torch.nn.BatchNorm2d(hidden),
             torch.nn.LeakyReLU(0.2, inplace=True),
 
             # 4) 14×14 -> 28×28
             torch.nn.ConvTranspose2d(hidden, 1, kernel_size=4, stride=2, padding=1),
-            torch.nn.Tanh()
+            torch.nn.Tanh()  # final activation in [-1, 1]
         )
         return model
     
